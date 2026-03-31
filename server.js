@@ -4,19 +4,15 @@ const mongoose = require("mongoose");
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const cors = require("cors");
-const helmet = require("helmet");
 
 const app = express();
-
-// ===== MIDDLEWARE =====
 app.use(express.json());
 app.use(cors());
-app.use(helmet({ contentSecurityPolicy: false }));
 
 // ===== RAZORPAY SETUP =====
 const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID || "dummy",
-    key_secret: process.env.RAZORPAY_KEY_SECRET || "dummy",
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
 // ===== DB MODEL =====
@@ -26,35 +22,49 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model("User", userSchema);
 
-// ===== 1. FRONTEND ROUTE (Button Screen) =====
-app.get("/", (req, res) => {
+// ===== 1. FRONTEND ROUTE (Ab ID yahi dikhegi!) =====
+app.get("/", async (req, res) => {
+    // Database se user nikalna ya naya banana
+    let testUser = await User.findOne({ email: "test@gmail.com" });
+    if (!testUser) {
+        testUser = await User.create({ email: "test@gmail.com", credits: 10 });
+    }
+
     res.send(`
     <!DOCTYPE html>
     <html>
     <head>
-        <title>VibeGen AI - Buy Credits</title>
+        <title>VibeGen AI - Testing</title>
         <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
         <style>
-            body { font-family: sans-serif; text-align: center; padding: 50px; background: #f4f4f4; }
+            body { font-family: sans-serif; text-align: center; padding: 40px; background: #fdfdfd; }
+            .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); display: inline-block; }
+            .id-box { background: #eef; padding: 10px; border: 2px dashed #3399cc; font-weight: bold; font-size: 20px; color: #d32f2f; margin: 20px 0; }
             button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #3399cc; color: #fff; border: none; border-radius: 5px; }
         </style>
     </head>
     <body>
-        <h1>🚀 VibeGen AI Payments</h1>
-        <p>Server Status: <b>Live</b></p>
-        <button id="pay-btn">Buy 50 Credits (₹500)</button>
+        <div class="card">
+            <h1>🚀 VibeGen AI Payment Test</h1>
+            <p>Testing ke liye niche di gayi ID copy karein:</p>
+            
+            <div class="id-box" id="myId">${testUser._id}</div>
+            
+            <p>Step: "Buy" dabayein aur yahi ID paste karein</p>
+            <button id="pay-btn">Buy 50 Credits (₹500)</button>
+        </div>
 
         <script>
         document.getElementById('pay-btn').onclick = async () => {
-            const userId = prompt("Apni 24-digit User ID daalein (Logs se copy karein):");
-            if(!userId) return alert("User ID zaroori hai!");
-
+            const userId = document.getElementById('myId').innerText;
+            
             const res = await fetch('/api/payments/create-order', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ userId })
             });
             const data = await res.json();
+            
             if(data.error) return alert("Error: " + data.error);
 
             const options = {
@@ -62,7 +72,7 @@ app.get("/", (req, res) => {
                 amount: data.amount,
                 currency: "INR",
                 name: "VibeGen AI",
-                description: "Purchase Credits",
+                description: "Testing Payment",
                 order_id: data.orderId,
                 handler: async function (response) {
                     const verifyRes = await fetch('/api/payments/verify', {
@@ -88,7 +98,7 @@ app.post("/api/payments/create-order", async (req, res) => {
     try {
         const { userId } = req.body;
         const user = await User.findById(userId);
-        if (!user) return res.status(404).json({ error: "User ID galat hai ya database mein nahi mili!" });
+        if (!user) return res.status(404).json({ error: "User nahi mila!" });
 
         const order = await razorpay.orders.create({
             amount: 500 * 100, 
@@ -110,7 +120,7 @@ app.post("/api/payments/verify", async (req, res) => {
 
         if (expectedSignature === razorpay_signature) {
             await User.findByIdAndUpdate(userId, { $inc: { credits: 50 } });
-            res.json({ success: true, message: "Payment Success! 50 Credits added." });
+            res.json({ success: true, message: "Badhai ho! Payment Success." });
         } else {
             res.status(400).json({ error: "Signature mismatch" });
         }
@@ -119,28 +129,9 @@ app.post("/api/payments/verify", async (req, res) => {
     }
 });
 
-// ===== SERVER START + AUTO USER GENERATOR =====
+// ===== SERVER START =====
 const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI;
-
-mongoose.connect(MONGO_URI)
-    .then(async () => {
-        console.log("✅ MongoDB Connected");
-
-        // --- YAHAN SE USER ID MILEGI ---
-        let testUser = await User.findOne({ email: "test@gmail.com" });
-        if (!testUser) {
-            testUser = await User.create({ email: "test@gmail.com", credits: 10 });
-        }
-        
-        console.log("\n******************************************");
-        console.log("🚀 COPY THIS USER ID FOR TESTING:");
-        console.log(testUser._id.toString()); 
-        console.log("******************************************\n");
-
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => {
         app.listen(PORT, "0.0.0.0", () => console.log(`🚀 Server on port ${PORT}`));
-    })
-    .catch(err => {
-        console.error("❌ DB Error:", err);
-        app.listen(PORT, "0.0.0.0", () => console.log("🚀 Server running (DB Failed)"));
     });
